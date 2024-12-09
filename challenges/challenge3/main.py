@@ -1,8 +1,8 @@
-from vector_store import VectorStore
 from custom_index import get_fields
 from dotenv import load_dotenv
+from vector_store import VectorStore
 
-load_dotenv(dotenv_path=".env")
+load_dotenv(dotenv_path="../../.env")
 
 
 # https://python.langchain.com/docs/integrations/vectorstores/azuresearch/#perform-a-hybrid-search

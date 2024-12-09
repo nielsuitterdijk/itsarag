@@ -1,19 +1,27 @@
 import os
+from typing import TypeVar
 
-from langchain_core.documents import Document
+from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import AzureChatOpenAI
-from vector_store import VectorStore
+from pydantic import BaseModel
+
+B = TypeVar("B", bound=BaseModel)
 
 
 class Chat:
     def __init__(self) -> None:
+        for key in [
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_OPENAI_DEPLOYMENT_NAME",
+            "AZURE_OPENAI_API_VERSION",
+        ]:
+            print(f"{key}: {os.environ[key]}")
         self.llm = AzureChatOpenAI(
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
             azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"],
             openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],  # type: ignore
         )
-        self.store = VectorStore()
         self.prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -25,15 +33,11 @@ class Chat:
             ]
         )
 
-    def chat(self, message: str) -> str:
-        references = self.retrieve(message)
-        return self.generate(message, references)
+    def complete(self, system_prompt: str, message: dict) -> BaseMessage:
+        prompt = ChatPromptTemplate.from_messages([("system", system_prompt)])
+        messages = prompt.invoke(message)
+        return self.llm.invoke(messages)
 
-    def retrieve(self, message: str) -> list[Document]:
-        return self.store.search(message)
-
-    def generate(self, message: str, documents: list[Document]) -> str:
-        docs_content = "\n\n".join(doc.page_content for doc in documents)
-        messages = self.prompt.invoke({"question": message, "context": docs_content})
-        response = self.llm.invoke(messages)
-        return str(response.content)
+    def structured_complete(self, pydantic_model: type[B], query: str) -> B:
+        result = self.llm.with_structured_output(pydantic_model).invoke(query)
+        return pydantic_model.model_validate(result)
