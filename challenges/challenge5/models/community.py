@@ -4,5 +4,5 @@ from pydantic import BaseModel
 
 
 class Community(BaseModel):
-    entities: list[Entity]
-    relationships: list[Relationship]
+    entities: list[Entity] = []
+    relationships: list[Relationship] = []

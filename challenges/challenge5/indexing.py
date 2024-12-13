@@ -1,12 +1,16 @@
 import json
 import os
+from collections import defaultdict
 from typing import TypeVar
 
 from chat import Chat
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_core.documents import Document
 from models.community import Community
+from models.entity import Entity
+from models.relationship import Relationship
 from pydantic import BaseModel
+from tqdm import tqdm
 
 B = TypeVar("B", bound=BaseModel)
 
@@ -34,9 +38,27 @@ class GraphRAGIndex:
         self.documents: list[Document] = []
 
     def build_context(self, documents: list[Document]):
-        # TODO: Chunk documents
-        community = self.extract_communities(documents)
+        # https://microsoft.github.io/graphrag/index/default_dataflow/#entity-relationship-extraction
+        community = self.extract_communities(
+            documents
+        )  # ? Do we need to keep link to document?
+        # TODO: claim extraciton -- later
+        # TODO: community detection ?  -- Hierarchical Leiden Clustering,
+        # TODO: graph embedding node2vec ?
+        # TODO: Community summary & embedding
+        # TODO: Create document embedding - average of chunk embeddings
+        # TODO: search algos
+
         return community
+
+    def chunk_documents(self, documents: list[Document]) -> list[Document]:
+        client = CharacterTextSplitter(
+            chunk_size=5_000,
+            chunk_overlap=100,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        return client.split_documents(documents)
 
     def extract_communities(self, documents: list[Document]) -> Community:
         all_communities_path = f"{self.dir}{self.output_dir}/all_communities.json"
@@ -68,26 +90,53 @@ class GraphRAGIndex:
         return all_communities
 
     def merge_communities(self, communities: list[Community]) -> Community:
-        entities = {}
-        relationships = {}
+        """
+        This function is consumed by extract_communities. That function generates a community for each chunk.
+        Therefore, it's prone to duplicate entities & relations.
+        This function aims to consolidate duplicates by summarizing
+        """
+        entity_dict: defaultdict[str, list[Entity]] = defaultdict(list)
+        relationship_dict: defaultdict[str, list[Relationship]] = defaultdict(list)
 
         for community in communities:
             for entity in community.entities:
-                entities[entity.name] = entity
+                # TODO: Duplicates may not have same formatted name
+                entity_dict[entity.name].append(entity)
             for relationship in community.relationships:
-                relationships[
-                    relationship.source_entity + relationship.target_entity
-                ] = relationship
+                relationship_dict[
+                    f"{relationship.source_entity}_{relationship.target_entity}"
+                ].append(relationship)
 
-        return Community(
-            entities=list(entities.values()), relationships=list(relationships.values())
-        )
+        final_community = Community()
+        entity_summary_prompt = open(
+            f"{self.dir}{self.prompt_dir}/entity_summary.txt"
+        ).read()
+        print("Merging entities")
+        for duplicate_entities in tqdm(entity_dict.values()):
+            final_entity = self.chat.structured_complete(
+                Entity,
+                entity_summary_prompt.replace(
+                    "{entities}",
+                    json.dumps([e.model_dump() for e in duplicate_entities]),
+                ),
+            )
+            final_community.entities.append(final_entity)
+        relation_summary_prompt = open(
+            f"{self.dir}{self.prompt_dir}/relationship_summary.txt"
+        ).read()
 
-    def chunk_documents(self, documents: list[Document]) -> list[Document]:
-        client = CharacterTextSplitter(
-            chunk_size=5_000,
-            chunk_overlap=100,
-            length_function=len,
-            is_separator_regex=False,
-        )
-        return client.split_documents(documents)
+        print("Merging relations")
+        for duplicate_relations in tqdm(relationship_dict.values()):
+            final_relationship = self.chat.structured_complete(
+                Relationship,
+                relation_summary_prompt.replace(
+                    "{relationships}",
+                    json.dumps([d.model_dump() for d in duplicate_relations]),
+                ),
+            )
+            final_community.relationships.append(final_relationship)
+
+        return final_community
+
+    def detect_communities(self, community: Community) -> None:
+        pass

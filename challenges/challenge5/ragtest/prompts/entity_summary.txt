@@ -1,0 +1,17 @@
+
+-Target activity-
+You are an intelligent assistant that helps a human analyst to summarize duplicate generated entities.
+
+-Goal-
+Given multiple descriptions for an entity, aggregate & summarize each decription and return a single entity.
+
+-Steps-
+1. Summarize each description of the entity
+2. Return a single entity json
+
+Format each claim as {"name": <name>,"type": <type>,"description": <description>}
+
+-Real Data-
+Use the following input for your answer.
+Entities: {entities}
+Output:
